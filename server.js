@@ -6,53 +6,62 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔵 Get video or shorts info
+// Supported qualities
+const QUALITY_MAP = ["144p", "240p", "360p", "480p", "720p", "1080p"];
+
+// Extract download links safely
+function extractLinks(info) {
+  const f = info.formats;
+  const links = {};
+
+  QUALITY_MAP.forEach((q) => {
+    const match = f.find((fmt) => fmt.qualityLabel === q);
+    links[q] = match ? match.url : null;
+  });
+
+  return links;
+}
+
+// 🔵 Unified endpoint for video + shorts
 app.post("/info", async (req, res) => {
   try {
     const { url } = req.body;
 
-    if (!ytdl.validateURL(url)) {
+    if (!url || !ytdl.validateURL(url)) {
       return res.json({ error: "Invalid YouTube URL" });
     }
 
     const info = await ytdl.getInfo(url);
 
-    const formats = info.formats;
-
-    const links = {
-      "480p": formats.find((f) => f.qualityLabel === "480p")?.url || null,
-      "720p": formats.find((f) => f.qualityLabel === "720p")?.url || null,
-      "1080p": formats.find((f) => f.qualityLabel === "1080p")?.url || null,
-    };
-
     res.json({
       title: info.videoDetails.title,
       thumbnail: info.videoDetails.thumbnails.pop().url,
-      links,
+      links: extractLinks(info),
     });
-  } catch (err) {
-    console.log(err);
-    res.json({ error: "Failed to fetch video" });
+  } catch (error) {
+    console.error("ERROR in /info:", error);
+    res.json({ error: "Failed to fetch video info" });
   }
 });
 
-// 🟢 Download stream (optional but nice for direct downloads)
+// 🟢 Direct stream download
 app.get("/download", async (req, res) => {
   try {
     const { url, quality } = req.query;
 
-    if (!ytdl.validateURL(url)) {
+    if (!url || !ytdl.validateURL(url)) {
       return res.status(400).send("Invalid URL");
     }
 
+    const safeQuality = QUALITY_MAP.includes(quality) ? quality : "360p";
+
     res.header("Content-Disposition", 'attachment; filename="video.mp4"');
 
-    ytdl(url, { quality })
-      .pipe(res);
-  } catch (err) {
-    console.log(err);
+    ytdl(url, { quality: safeQuality }).pipe(res);
+  } catch (error) {
+    console.error("DOWNLOAD ERROR:", error);
     res.status(500).send("Download failed");
   }
 });
 
-app.listen(3000, () => console.log("YouTube API running on port 3000"));
+app.listen(3000, () => console.log("🔥 YouTube API running on port 3000"));
